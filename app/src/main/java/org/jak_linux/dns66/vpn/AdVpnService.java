@@ -56,13 +56,27 @@ public class AdVpnService extends VpnService {
     private final AdVpnThread vpnThread = new AdVpnThread(
             new AdVpnThread.Notify() {
                 @Override
-                public void run(final int value) {
-                    handler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            updateVpnStatus();
-                        }
-                    });
+                public void running() {
+                    status.running();
+                    handler.post(()->updateVpnStatus());
+                }
+
+                @Override
+                public void starting() {
+                    status.starting();
+                    handler.post(()->updateVpnStatus());
+                }
+
+                @Override
+                public void reconnectingAfterNetworkError() {
+                    status.reconnectingAfterNetworkError();
+                    handler.post(()->updateVpnStatus());
+                }
+
+                @Override
+                public void stopping() {
+                    status.stopping();
+                    handler.post(()->updateVpnStatus());
                 }
             },
             new VpnServiceSocketProtector(AdVpnService.this),
@@ -72,21 +86,12 @@ public class AdVpnService extends VpnService {
     private final ConnectivityChangeAnnouncer connectivityChangedReceiver = new ConnectivityChangeAnnouncer(new ConnectivityChangeAnnouncer.Callback() {
         @Override
         public void connectivityChanged() {
-            handler.post(new Runnable() {
-                @Override
-                public void run() {
-                    reconnect();
-                }
-            });
+            handler.post(() -> reconnect());
         }
 
         @Override
         public void noNetworkDetected() {
-            handler.post(new Runnable() {
-                public void run() {
-                    waitForNetVpn();
-                }
-            });
+            handler.post(() -> waitForNetVpn());
         }
     });
 

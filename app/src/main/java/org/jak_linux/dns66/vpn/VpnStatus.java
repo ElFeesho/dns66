@@ -6,18 +6,19 @@ import org.jak_linux.dns66.R;
 
 public class VpnStatus {
 
-    static final int VPN_STATUS_STARTING = 0;
-    static final int VPN_STATUS_RUNNING = 1;
-    static final int VPN_STATUS_STOPPING = 2;
-    static final int VPN_STATUS_WAITING_FOR_NETWORK = 3;
-    static final int VPN_STATUS_RECONNECTING = 4;
-    static final int VPN_STATUS_RECONNECTING_NETWORK_ERROR = 5;
-    static final int VPN_STATUS_STOPPED = 6;
+    private static final int VPN_STATUS_STARTING = 0;
+    private static final int VPN_STATUS_RUNNING = 1;
+    private static final int VPN_STATUS_STOPPING = 2;
+    private static final int VPN_STATUS_WAITING_FOR_NETWORK = 3;
+    private static final int VPN_STATUS_RECONNECTING = 4;
+    private static final int VPN_STATUS_RECONNECTING_NETWORK_ERROR = 5;
+    private static final int VPN_STATUS_STOPPED = 6;
 
     private int currentStatus = VPN_STATUS_STOPPED;
 
-    static int vpnStatusToTextId(int status) {
-        switch (status) {
+    @StringRes
+    public int statusString() {
+        switch (currentStatus) {
             case VPN_STATUS_STARTING:
                 return R.string.notification_starting;
             case VPN_STATUS_RUNNING:
@@ -33,13 +34,8 @@ public class VpnStatus {
             case VPN_STATUS_STOPPED:
                 return R.string.notification_stopped;
             default:
-                throw new IllegalArgumentException("Invalid vpnStatus value (" + status + ")");
+                throw new IllegalArgumentException("Invalid vpnStatus value (" + currentStatus + ")");
         }
-    }
-
-    @StringRes
-    public int statusString() {
-        return vpnStatusToTextId(currentStatus);
     }
 
     void starting() {
@@ -56,6 +52,18 @@ public class VpnStatus {
 
     void stopped() {
         setStatus(VPN_STATUS_STOPPED);
+    }
+
+    void running() {
+        setStatus(VPN_STATUS_RUNNING);
+    }
+
+    void stopping() {
+        setStatus(VPN_STATUS_STOPPING);
+    }
+
+    void reconnectingAfterNetworkError() {
+        setStatus(VPN_STATUS_RECONNECTING_NETWORK_ERROR);
     }
 
     private void setStatus(int status) {

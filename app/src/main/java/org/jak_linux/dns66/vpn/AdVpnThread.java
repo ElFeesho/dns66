@@ -53,7 +53,10 @@ class AdVpnThread implements Runnable {
     }
 
     interface Notify {
-        void run(int value);
+        void running();
+        void starting();
+        void reconnectingAfterNetworkError();
+        void stopping();
     }
 
     interface BlockedHostProvider {
@@ -169,7 +172,7 @@ class AdVpnThread implements Runnable {
             return;
         }
 
-        notify.run(VpnStatus.VPN_STATUS_STARTING);
+        notify.starting();
 
         int retryTimeout = MIN_RETRY_TIME;
         // Try connecting the vpn continuously
@@ -187,11 +190,11 @@ class AdVpnThread implements Runnable {
                 // are exceptions that we expect to happen from network errors
                 Log.w(TAG, "Network exception in vpn thread, ignoring and reconnecting", e);
                 // If an exception was thrown, show to the user and try again
-                notify.run(VpnStatus.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
+                notify.reconnectingAfterNetworkError();
             } catch (Exception e) {
                 Log.e(TAG, "Network exception in vpn thread, reconnecting", e);
                 //ExceptionHandler.saveException(e, Thread.currentThread(), null);
-                notify.run(VpnStatus.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
+                notify.reconnectingAfterNetworkError();
             }
 
             // ...wait and try again
@@ -203,7 +206,7 @@ class AdVpnThread implements Runnable {
             }
         }
 
-        notify.run(VpnStatus.VPN_STATUS_STOPPING);
+        notify.stopping();
         Log.i(TAG, "Exiting");
     }
 
@@ -223,7 +226,7 @@ class AdVpnThread implements Runnable {
             FileOutputStream outFd = new FileOutputStream(pfd.getFileDescriptor());
 
             // Now we are connected. Set the flag and show the message.
-            notify.run(VpnStatus.VPN_STATUS_RUNNING);
+            notify.running();
 
             // We keep forwarding packets till something goes wrong.
             while (doOne(inputStream, outFd, packet))
