@@ -9,7 +9,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 
-class ConnectivityManagerDnsServerListProvider implements AdVpnThread.DnsServerListProvider {
+class ConnectivityManagerDnsServerListProvider implements AdVpnService.DnsServerListProvider {
 
     private final ConnectivityManager connectivityManager;
 

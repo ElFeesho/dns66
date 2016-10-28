@@ -11,13 +11,13 @@ package org.jak_linux.dns66.vpn;
 
 
 import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructPollfd;
 import android.util.Log;
 
-import org.jak_linux.dns66.Configuration;
 import org.jak_linux.dns66.FileHelper;
 import org.pcap4j.packet.IpV4Packet;
 import org.pcap4j.packet.UdpPacket;
@@ -32,10 +32,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.net.InetAddress;
 import java.net.SocketException;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -50,19 +48,8 @@ class AdVpnThread implements Runnable {
         ParcelFileDescriptor retrieve();
     }
 
-    interface ConfigProvider {
-        Configuration retrieveConfig();
-    }
-
     interface SocketProtector {
         void protect(DatagramSocket socket);
-    }
-
-    interface DnsServerListProvider {
-        class NoDnsServersException extends Throwable {
-        }
-
-        Collection<InetAddress> retrieveDnsServers() throws NoDnsServersException;
     }
 
     interface Notify {
@@ -209,11 +196,7 @@ class AdVpnThread implements Runnable {
 
             // ...wait and try again
             Log.i(TAG, "Retrying to connect in " + retryTimeout + "seconds...");
-            try {
-                Thread.sleep((long) retryTimeout * 1000);
-            } catch (InterruptedException e) {
-                break;
-            }
+            SystemClock.sleep(retryTimeout * 1000L);
 
             if (retryTimeout < MAX_RETRY_TIME) {
                 retryTimeout *= 2;
