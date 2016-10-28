@@ -58,10 +58,12 @@ public final class FileHelper {
 
     private static Configuration readConfigFile(Context context, String name, boolean defaultsOnly) throws IOException {
         InputStream stream;
-        if (defaultsOnly)
+        if (defaultsOnly) {
             stream = context.getAssets().open(name);
-        else
+        }
+        else {
             stream = FileHelper.openRead(context, name);
+        }
         Configuration config = new Configuration();
         config.read(new JsonReader(new InputStreamReader(stream)));
         return config;

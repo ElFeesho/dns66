@@ -14,10 +14,10 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
 import android.net.VpnService;
 import android.os.Handler;
 import android.support.annotation.Nullable;
-import android.support.annotation.StringRes;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
@@ -29,68 +29,7 @@ import org.jak_linux.dns66.R;
 
 public class AdVpnService extends VpnService {
 
-    public static class VpnStatus
-    {
-        static final int VPN_STATUS_STARTING = 0;
-        static final int VPN_STATUS_RUNNING = 1;
-        static final int VPN_STATUS_STOPPING = 2;
-        static final int VPN_STATUS_WAITING_FOR_NETWORK = 3;
-        static final int VPN_STATUS_RECONNECTING = 4;
-        static final int VPN_STATUS_RECONNECTING_NETWORK_ERROR = 5;
-        static final int VPN_STATUS_STOPPED = 6;
-
-        private int currentStatus = VPN_STATUS_STOPPED;
-
-        static int vpnStatusToTextId(int status) {
-            switch (status) {
-                case VPN_STATUS_STARTING:
-                    return R.string.notification_starting;
-                case VPN_STATUS_RUNNING:
-                    return R.string.notification_running;
-                case VPN_STATUS_STOPPING:
-                    return R.string.notification_stopping;
-                case VPN_STATUS_WAITING_FOR_NETWORK:
-                    return R.string.notification_waiting_for_net;
-                case VPN_STATUS_RECONNECTING:
-                    return R.string.notification_reconnecting;
-                case VPN_STATUS_RECONNECTING_NETWORK_ERROR:
-                    return R.string.notification_reconnecting_error;
-                case VPN_STATUS_STOPPED:
-                    return R.string.notification_stopped;
-                default:
-                    throw new IllegalArgumentException("Invalid vpnStatus value (" + status + ")");
-            }
-        }
-
-        @StringRes
-        public int statusString()
-        {
-            return vpnStatusToTextId(currentStatus);
-        }
-
-        void starting() {
-            currentStatus = VPN_STATUS_STARTING;
-        }
-
-        void waitingForNetwork() {
-            currentStatus = VPN_STATUS_WAITING_FOR_NETWORK;
-        }
-
-        void reconnecting() {
-            currentStatus = VPN_STATUS_RECONNECTING;
-        }
-
-        void stopped() {
-            currentStatus = VPN_STATUS_STOPPED;
-        }
-
-        public boolean isStopped() {
-            return currentStatus == VPN_STATUS_STOPPED;
-        }
-    }
-
     public static final String VPN_UPDATE_STATUS_INTENT = "org.jak_linux.dns66.VPN_UPDATE_STATUS";
-    public static final String VPN_UPDATE_STATUS_EXTRA = "VPN_STATUS";
     public static final int FOREGROUND_NOTIFICATION_ID = 10;
 
     private static final String TAG = "VpnService";
@@ -98,7 +37,9 @@ public class AdVpnService extends VpnService {
     public static VpnStatus status = new VpnStatus();
 
     private final Handler handler = new Handler();
-
+    private final NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this)
+            .setSmallIcon(R.drawable.ic_menu_info) // TODO: Notification icon
+            .setPriority(Notification.PRIORITY_MIN);
     private final AdVpnThread vpnThread = new AdVpnThread(this, new AdVpnThread.Notify() {
         @Override
         public void run(final int value) {
@@ -109,12 +50,12 @@ public class AdVpnService extends VpnService {
                 }
             });
         }
-    });
-
-    private final NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this)
-            .setSmallIcon(R.drawable.ic_menu_info) // TODO: Notification icon
-            .setPriority(Notification.PRIORITY_MIN);
-
+    }, new AdVpnThread.ConfigProvider() {
+        @Override
+        public Configuration retrieveConfig() {
+            return FileHelper.loadCurrentSettings(AdVpnService.this);
+        }
+    }, new ConnectivityManagerDnsServerListProvider((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)));
     private final ConnectivityChangeAnnouncer connectivityChangedReceiver = new ConnectivityChangeAnnouncer(new ConnectivityChangeAnnouncer.Callback() {
         @Override
         public void connectivityChanged() {
@@ -151,22 +92,18 @@ public class AdVpnService extends VpnService {
 
         Intent intent = new Intent(context, AdVpnService.class);
         intent.putExtra("COMMAND", Command.START.ordinal());
-        intent.putExtra("NOTIFICATION_INTENT",
-                PendingIntent.getActivity(context, 0,
-                        new Intent(context, MainActivity.class), 0));
+        intent.putExtra("NOTIFICATION_INTENT", PendingIntent.getActivity(context, 0, new Intent(context, MainActivity.class), 0));
         context.startService(intent);
     }
 
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
         Log.i(TAG, "onStartCommand");
-        switch (intent == null ? Command.START : Command.values()[intent.getIntExtra("COMMAND", Command.START.ordinal())]) {
-            case START:
-                startVpn(intent == null ? null : (PendingIntent) intent.getParcelableExtra("NOTIFICATION_INTENT"));
-                break;
-            case STOP:
-                stopVpn();
-                break;
+        Command command = intent == null ? Command.START : Command.values()[intent.getIntExtra("COMMAND", Command.START.ordinal())];
+        if (command == Command.START) {
+            startVpn(intent == null ? null : (PendingIntent) intent.getParcelableExtra("NOTIFICATION_INTENT"));
+        } else if (command == Command.STOP) {
+            stopVpn();
         }
 
         return Service.START_STICKY;
@@ -177,9 +114,7 @@ public class AdVpnService extends VpnService {
 
         startForeground(FOREGROUND_NOTIFICATION_ID, notificationBuilder.build());
 
-        Intent intent = new Intent(VPN_UPDATE_STATUS_INTENT);
-        intent.putExtra(VPN_UPDATE_STATUS_EXTRA, status.currentStatus);
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(new Intent(VPN_UPDATE_STATUS_INTENT));
     }
 
     private void startVpn(PendingIntent notificationIntent) {

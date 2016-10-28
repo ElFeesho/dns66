@@ -47,7 +47,6 @@ public class MainActivity extends AppCompatActivity {
     private final BroadcastReceiver vpnServiceBroadcastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            int str_id = intent.getIntExtra(AdVpnService.VPN_UPDATE_STATUS_EXTRA, R.string.notification_stopped);
             updateStatus();
         }
     };

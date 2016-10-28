@@ -11,11 +11,7 @@ package org.jak_linux.dns66.vpn;
 
 
 import android.app.PendingIntent;
-import android.content.Context;
 import android.content.Intent;
-import android.net.ConnectivityManager;
-import android.net.Network;
-import android.net.NetworkInfo;
 import android.net.VpnService;
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
@@ -48,6 +44,7 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -57,6 +54,50 @@ import java.util.Set;
 
 
 class AdVpnThread implements Runnable {
+
+    interface ConfigProvider {
+        Configuration retrieveConfig();
+    }
+
+    interface DnsServerListProvider {
+        class NoDnsServersException extends Throwable {
+        }
+
+        Collection<InetAddress> retrieveDnsServers() throws NoDnsServersException;
+    }
+
+    interface Notify {
+        void run(int value);
+    }
+
+    private static class VpnNetworkException extends Exception {
+        VpnNetworkException(String s) {
+            super(s);
+        }
+
+        VpnNetworkException(String s, Throwable t) {
+            super(s, t);
+        }
+    }
+
+    private static class TimedValue<T> {
+        private final T value;
+        private final long time;
+
+        TimedValue(T value) {
+            this.value = value;
+            this.time = System.currentTimeMillis();
+        }
+
+        long ageSeconds() {
+            return (System.currentTimeMillis() - time) / 1000;
+        }
+
+        T get() {
+            return value;
+        }
+    }
+
     private static final String TAG = "AdVpnThread";
     private static final int MIN_RETRY_TIME = 5;
     private static final int MAX_RETRY_TIME = 2 * 60;
@@ -66,9 +107,10 @@ class AdVpnThread implements Runnable {
     // Apps using DownloadManager that are known to be broken on Nougat when a VPN is active, see
     // issue #31 for further details.
     private static final String[] NOUGAT_APP_WHITELIST = {"org.jak_linux.dns66", "com.android.vending"};
-
     private final VpnService vpnService;
     private final Notify notify;
+    private final ConfigProvider configProvider;
+    private final DnsServerListProvider dnsServerListProvider;
     /* Data to be written to the device */
     private final Queue<byte[]> deviceWrites = new LinkedList<>();
     // HashMap that keeps an upper limit of packets
@@ -90,28 +132,11 @@ class AdVpnThread implements Runnable {
     private FileDescriptor mInterruptFd = null;
     private Set<String> blockedHosts = new HashSet<>();
 
-    AdVpnThread(VpnService vpnService, Notify notify) {
+    AdVpnThread(VpnService vpnService, Notify notify, ConfigProvider configProvider, DnsServerListProvider dnsServerListProvider) {
         this.vpnService = vpnService;
         this.notify = notify;
-    }
-
-    private static Set<InetAddress> getDnsServers(Context context) throws VpnNetworkException {
-        Set<InetAddress> out = new HashSet<>();
-        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(VpnService.CONNECTIVITY_SERVICE);
-        // Seriously, Android? Seriously?
-        NetworkInfo activeInfo = cm.getActiveNetworkInfo();
-        if (activeInfo == null)
-            throw new VpnNetworkException("No DNS Server");
-
-        for (Network nw : cm.getAllNetworks()) {
-            NetworkInfo ni = cm.getNetworkInfo(nw);
-            if (ni == null || !ni.isConnected() || ni.getType() != activeInfo.getType()
-                    || ni.getSubtype() != activeInfo.getSubtype())
-                continue;
-            for (InetAddress address : cm.getLinkProperties(nw).getDnsServers())
-                out.add(address);
-        }
-        return out;
+        this.configProvider = configProvider;
+        this.dnsServerListProvider = dnsServerListProvider;
     }
 
     void startThread() {
@@ -123,15 +148,19 @@ class AdVpnThread implements Runnable {
 
     void stopThread() {
         Log.i(TAG, "Stopping Vpn Thread");
-        if (thread != null) thread.interrupt();
+        if (thread == null) {
+            return;
+        }
+
+        thread.interrupt();
 
         mInterruptFd = FileHelper.closeOrWarn(mInterruptFd, TAG, "stopThread: Could not close interruptFd");
         try {
-            if (thread != null) thread.join(2000);
+            thread.join(2000);
         } catch (InterruptedException e) {
             Log.w(TAG, "stopThread: Interrupted while joining thread", e);
         }
-        if (thread != null && thread.isAlive()) {
+        if (thread.isAlive()) {
             Log.w(TAG, "stopThread: Could not kill VPN thread, it is still alive");
         } else {
             thread = null;
@@ -150,7 +179,7 @@ class AdVpnThread implements Runnable {
             return;
         }
 
-        notify.run(AdVpnService.VpnStatus.VPN_STATUS_STARTING);
+        notify.run(VpnStatus.VPN_STATUS_STARTING);
 
         int retryTimeout = MIN_RETRY_TIME;
         // Try connecting the vpn continuously
@@ -168,11 +197,11 @@ class AdVpnThread implements Runnable {
                 // are exceptions that we expect to happen from network errors
                 Log.w(TAG, "Network exception in vpn thread, ignoring and reconnecting", e);
                 // If an exception was thrown, show to the user and try again
-                notify.run(AdVpnService.VpnStatus.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
+                notify.run(VpnStatus.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
             } catch (Exception e) {
                 Log.e(TAG, "Network exception in vpn thread, reconnecting", e);
                 //ExceptionHandler.saveException(e, Thread.currentThread(), null);
-                notify.run(AdVpnService.VpnStatus.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
+                notify.run(VpnStatus.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
             }
 
             // ...wait and try again
@@ -188,7 +217,7 @@ class AdVpnThread implements Runnable {
             }
         }
 
-        notify.run(AdVpnService.VpnStatus.VPN_STATUS_STOPPING);
+        notify.run(VpnStatus.VPN_STATUS_STOPPING);
         Log.i(TAG, "Exiting");
     }
 
@@ -208,7 +237,7 @@ class AdVpnThread implements Runnable {
             FileOutputStream outFd = new FileOutputStream(pfd.getFileDescriptor());
 
             // Now we are connected. Set the flag and show the message.
-            notify.run(AdVpnService.VpnStatus.VPN_STATUS_RUNNING);
+            notify.run(VpnStatus.VPN_STATUS_RUNNING);
 
             // We keep forwarding packets till something goes wrong.
             while (doOne(inputStream, outFd, packet))
@@ -299,9 +328,7 @@ class AdVpnThread implements Runnable {
             return;
         }
 
-        final byte[] readPacket = Arrays.copyOfRange(packet, 0, length);
-
-        handleDnsRequest(readPacket);
+        handleDnsRequest(Arrays.copyOfRange(packet, 0, length));
     }
 
     private void handleDnsRequest(byte[] packet) throws VpnNetworkException {
@@ -397,7 +424,7 @@ class AdVpnThread implements Runnable {
     }
 
     private void loadBlockedHosts() throws InterruptedException {
-        Configuration config = FileHelper.loadCurrentSettings(vpnService);
+        Configuration config = configProvider.retrieveConfig();
 
         blockedHosts = new HashSet<>();
 
@@ -484,7 +511,13 @@ class AdVpnThread implements Runnable {
         Log.i(TAG, "Configuring");
 
         // Get the current DNS servers before starting the VPN
-        Set<InetAddress> dnsServers = getDnsServers(vpnService);
+        Collection<InetAddress> dnsServers;
+        try {
+            dnsServers = dnsServerListProvider.retrieveDnsServers();
+        } catch (DnsServerListProvider.NoDnsServersException e) {
+            e.printStackTrace();
+            throw new VpnNetworkException("No DNS servers");
+        }
         Log.i(TAG, "Got DNS servers = " + dnsServers);
 
         // Configure a builder while parsing the parameters.
@@ -492,7 +525,7 @@ class AdVpnThread implements Runnable {
         builder.addAddress("192.168.50.1", 24);
 
         // Add configured DNS servers
-        Configuration config = FileHelper.loadCurrentSettings(vpnService);
+        Configuration config = configProvider.retrieveConfig();
         if (config.dnsServers.enabled) {
             for (Configuration.Item item : config.dnsServers.items) {
                 if (item.state == Configuration.Item.STATE_ALLOW) {
@@ -529,45 +562,6 @@ class AdVpnThread implements Runnable {
         }
 
         // Create a new interface using the builder and save the parameters.
-        ParcelFileDescriptor pfd = builder
-                .setSession("DNS66")
-                .setConfigureIntent(
-                        PendingIntent.getActivity(vpnService, 1, new Intent(vpnService, MainActivity.class),
-                                PendingIntent.FLAG_CANCEL_CURRENT)).establish();
-        Log.i(TAG, "Configured");
-        return pfd;
-    }
-
-    interface Notify {
-        void run(int value);
-    }
-
-    private static class VpnNetworkException extends Exception {
-        VpnNetworkException(String s) {
-            super(s);
-        }
-
-        VpnNetworkException(String s, Throwable t) {
-            super(s, t);
-        }
-
-    }
-
-    private static class TimedValue<T> {
-        private final T value;
-        private final long time;
-
-        TimedValue(T value) {
-            this.value = value;
-            this.time = System.currentTimeMillis();
-        }
-
-        long ageSeconds() {
-            return (System.currentTimeMillis() - time) / 1000;
-        }
-
-        T get() {
-            return value;
-        }
+        return builder.setSession("DNS66").setConfigureIntent(PendingIntent.getActivity(vpnService, 1, new Intent(vpnService, MainActivity.class), PendingIntent.FLAG_CANCEL_CURRENT)).establish();
     }
 }
