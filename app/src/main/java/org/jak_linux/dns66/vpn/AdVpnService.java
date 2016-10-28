@@ -43,6 +43,7 @@ public class AdVpnService extends VpnService implements Handler.Callback {
     private static final int VPN_MSG_STATUS_UPDATE = 0;
     private static final int VPN_MSG_NETWORK_CHANGED = 1;
     private static final String TAG = "VpnService";
+    public static final int FOREGROUND_NOTIFICATION_ID = 10;
     // TODO: Temporary Hack til refactor is done
     public static int vpnStatus = VPN_STATUS_STOPPED;
     private final Handler handler = new Handler(this);
@@ -124,7 +125,7 @@ public class AdVpnService extends VpnService implements Handler.Callback {
         int notificationTextId = vpnStatusToTextId(status);
         notificationBuilder.setContentText(getString(notificationTextId));
 
-        startForeground(10, notificationBuilder.build());
+        startForeground(FOREGROUND_NOTIFICATION_ID, notificationBuilder.build());
 
         Intent intent = new Intent(VPN_UPDATE_STATUS_INTENT);
         intent.putExtra(VPN_UPDATE_STATUS_EXTRA, status);
