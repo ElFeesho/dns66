@@ -120,7 +120,7 @@ public class AdVpnService extends VpnService {
 
         private final Context context;
 
-        public ContextConfigProvider(Context context) {
+        ContextConfigProvider(Context context) {
             this.context = context;
         }
 
@@ -135,7 +135,7 @@ public class AdVpnService extends VpnService {
         private final AdVpnThread.ConfigProvider configProvider;
         private final Context context;
 
-        public FileBlockedHostProvider(AdVpnThread.ConfigProvider configProvider, Context context) {
+        FileBlockedHostProvider(AdVpnThread.ConfigProvider configProvider, Context context) {
             this.configProvider = configProvider;
             this.context = context;
         }
@@ -219,6 +219,20 @@ public class AdVpnService extends VpnService {
         }
     }
 
+    private class VpnServiceSocketProtector implements AdVpnThread.SocketProtector {
+
+        private final VpnService vpnService;
+
+        VpnServiceSocketProtector(VpnService vpnService) {
+            this.vpnService = vpnService;
+        }
+
+        @Override
+        public void protect(DatagramSocket socket) {
+            vpnService.protect(socket);
+        }
+    }
+
     public static final String VPN_UPDATE_STATUS_INTENT = "org.jak_linux.dns66.VPN_UPDATE_STATUS";
     public static final int FOREGROUND_NOTIFICATION_ID = 10;
 
@@ -227,25 +241,26 @@ public class AdVpnService extends VpnService {
     public static VpnStatus status = new VpnStatus();
 
     private final Handler handler = new Handler();
-    private final NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this)
-            .setSmallIcon(R.drawable.ic_menu_info) // TODO: Notification icon
-            .setPriority(Notification.PRIORITY_MIN);
-    private final AdVpnThread vpnThread = new AdVpnThread(new AdVpnThread.Notify() {
-        @Override
-        public void run(final int value) {
-            handler.post(new Runnable() {
+    private final NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this).setSmallIcon(R.drawable.ic_menu_info).setPriority(Notification.PRIORITY_MIN);
+
+    private final ContextConfigProvider configProvider = new ContextConfigProvider(this);
+
+    private final AdVpnThread vpnThread = new AdVpnThread(
+            new AdVpnThread.Notify() {
                 @Override
-                public void run() {
-                    updateVpnStatus();
+                public void run(final int value) {
+                    handler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            updateVpnStatus();
+                        }
+                    });
                 }
-            });
-        }
-    }, new AdVpnThread.SocketProtector() {
-        @Override
-        public void protect(DatagramSocket socket) {
-            protect(socket);
-        }
-    }, new VpnServiceVpnFileDescriptorProvider(this, new ConnectivityManagerDnsServerListProvider((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)), new ContextConfigProvider(this)), new AdVpnService.FileBlockedHostProvider(new ContextConfigProvider(this), this));
+            },
+            new VpnServiceSocketProtector(AdVpnService.this),
+            new VpnServiceVpnFileDescriptorProvider(this, new ConnectivityManagerDnsServerListProvider((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)), configProvider),
+            new AdVpnService.FileBlockedHostProvider(configProvider, this));
+
     private final ConnectivityChangeAnnouncer connectivityChangedReceiver = new ConnectivityChangeAnnouncer(new ConnectivityChangeAnnouncer.Callback() {
         @Override
         public void connectivityChanged() {
@@ -322,8 +337,7 @@ public class AdVpnService extends VpnService {
     }
 
     private void restartVpnThread() {
-        vpnThread.stopThread();
-        vpnThread.startThread();
+        vpnThread.restartThread();
     }
 
     private void stopVpnThread() {

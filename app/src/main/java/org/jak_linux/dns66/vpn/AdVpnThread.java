@@ -324,7 +324,6 @@ class AdVpnThread implements Runnable {
             throw new VpnNetworkException("Cannot read from device", e);
         }
 
-
         if (length == 0) {
             // TODO: Possibly change to exception
             Log.w(TAG, "Got empty packet!");
@@ -424,5 +423,10 @@ class AdVpnThread implements Runnable {
                 ).build();
 
         deviceWrites.add(ipOutPacket.getRawData());
+    }
+
+    public void restartThread() {
+        stopThread();
+        startThread();
     }
 }
