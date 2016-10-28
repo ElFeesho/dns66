@@ -12,15 +12,12 @@ package org.jak_linux.dns66.vpn;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
-import android.net.ConnectivityManager;
 import android.net.VpnService;
 import android.os.Handler;
-import android.os.Message;
 import android.support.annotation.Nullable;
+import android.support.annotation.StringRes;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
@@ -30,59 +27,114 @@ import org.jak_linux.dns66.FileHelper;
 import org.jak_linux.dns66.MainActivity;
 import org.jak_linux.dns66.R;
 
-public class AdVpnService extends VpnService implements Handler.Callback {
-    public static final int VPN_STATUS_STARTING = 0;
-    public static final int VPN_STATUS_RUNNING = 1;
-    public static final int VPN_STATUS_STOPPING = 2;
-    public static final int VPN_STATUS_WAITING_FOR_NETWORK = 3;
-    public static final int VPN_STATUS_RECONNECTING = 4;
-    public static final int VPN_STATUS_RECONNECTING_NETWORK_ERROR = 5;
-    public static final int VPN_STATUS_STOPPED = 6;
+public class AdVpnService extends VpnService {
+
+    public static class VpnStatus
+    {
+        static final int VPN_STATUS_STARTING = 0;
+        static final int VPN_STATUS_RUNNING = 1;
+        static final int VPN_STATUS_STOPPING = 2;
+        static final int VPN_STATUS_WAITING_FOR_NETWORK = 3;
+        static final int VPN_STATUS_RECONNECTING = 4;
+        static final int VPN_STATUS_RECONNECTING_NETWORK_ERROR = 5;
+        static final int VPN_STATUS_STOPPED = 6;
+
+        private int currentStatus = VPN_STATUS_STOPPED;
+
+        static int vpnStatusToTextId(int status) {
+            switch (status) {
+                case VPN_STATUS_STARTING:
+                    return R.string.notification_starting;
+                case VPN_STATUS_RUNNING:
+                    return R.string.notification_running;
+                case VPN_STATUS_STOPPING:
+                    return R.string.notification_stopping;
+                case VPN_STATUS_WAITING_FOR_NETWORK:
+                    return R.string.notification_waiting_for_net;
+                case VPN_STATUS_RECONNECTING:
+                    return R.string.notification_reconnecting;
+                case VPN_STATUS_RECONNECTING_NETWORK_ERROR:
+                    return R.string.notification_reconnecting_error;
+                case VPN_STATUS_STOPPED:
+                    return R.string.notification_stopped;
+                default:
+                    throw new IllegalArgumentException("Invalid vpnStatus value (" + status + ")");
+            }
+        }
+
+        @StringRes
+        public int statusString()
+        {
+            return vpnStatusToTextId(currentStatus);
+        }
+
+        void starting() {
+            currentStatus = VPN_STATUS_STARTING;
+        }
+
+        void waitingForNetwork() {
+            currentStatus = VPN_STATUS_WAITING_FOR_NETWORK;
+        }
+
+        void reconnecting() {
+            currentStatus = VPN_STATUS_RECONNECTING;
+        }
+
+        void stopped() {
+            currentStatus = VPN_STATUS_STOPPED;
+        }
+
+        public boolean isStopped() {
+            return currentStatus == VPN_STATUS_STOPPED;
+        }
+    }
+
     public static final String VPN_UPDATE_STATUS_INTENT = "org.jak_linux.dns66.VPN_UPDATE_STATUS";
     public static final String VPN_UPDATE_STATUS_EXTRA = "VPN_STATUS";
-    private static final int VPN_MSG_STATUS_UPDATE = 0;
-    private static final int VPN_MSG_NETWORK_CHANGED = 1;
-    private static final String TAG = "VpnService";
     public static final int FOREGROUND_NOTIFICATION_ID = 10;
-    // TODO: Temporary Hack til refactor is done
-    public static int vpnStatus = VPN_STATUS_STOPPED;
-    private final Handler handler = new Handler(this);
+
+    private static final String TAG = "VpnService";
+
+    public static VpnStatus status = new VpnStatus();
+
+    private final Handler handler = new Handler();
+
     private final AdVpnThread vpnThread = new AdVpnThread(this, new AdVpnThread.Notify() {
         @Override
-        public void run(int value) {
-            handler.sendMessage(handler.obtainMessage(VPN_MSG_STATUS_UPDATE, value, 0));
+        public void run(final int value) {
+            handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    updateVpnStatus();
+                }
+            });
         }
     });
-    private final BroadcastReceiver connectivityChangedReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            handler.sendMessage(handler.obtainMessage(VPN_MSG_NETWORK_CHANGED, intent));
-        }
-    };
+
     private final NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this)
             .setSmallIcon(R.drawable.ic_menu_info) // TODO: Notification icon
             .setPriority(Notification.PRIORITY_MIN);
 
-    public static int vpnStatusToTextId(int status) {
-        switch (status) {
-            case VPN_STATUS_STARTING:
-                return R.string.notification_starting;
-            case VPN_STATUS_RUNNING:
-                return R.string.notification_running;
-            case VPN_STATUS_STOPPING:
-                return R.string.notification_stopping;
-            case VPN_STATUS_WAITING_FOR_NETWORK:
-                return R.string.notification_waiting_for_net;
-            case VPN_STATUS_RECONNECTING:
-                return R.string.notification_reconnecting;
-            case VPN_STATUS_RECONNECTING_NETWORK_ERROR:
-                return R.string.notification_reconnecting_error;
-            case VPN_STATUS_STOPPED:
-                return R.string.notification_stopped;
-            default:
-                throw new IllegalArgumentException("Invalid vpnStatus value (" + status + ")");
+    private final ConnectivityChangeAnnouncer connectivityChangedReceiver = new ConnectivityChangeAnnouncer(new ConnectivityChangeAnnouncer.Callback() {
+        @Override
+        public void connectivityChanged() {
+            handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    reconnect();
+                }
+            });
         }
-    }
+
+        @Override
+        public void noNetworkDetected() {
+            handler.post(new Runnable() {
+                public void run() {
+                    waitForNetVpn();
+                }
+            });
+        }
+    });
 
     public static void checkStartVpnOnBoot(Context context) {
         Log.i("BOOT", "Checking whether to start ad buster on boot");
@@ -120,26 +172,26 @@ public class AdVpnService extends VpnService implements Handler.Callback {
         return Service.START_STICKY;
     }
 
-    private void updateVpnStatus(int status) {
-        vpnStatus = status;
-        int notificationTextId = vpnStatusToTextId(status);
-        notificationBuilder.setContentText(getString(notificationTextId));
+    private void updateVpnStatus() {
+        notificationBuilder.setContentText(getString(status.statusString()));
 
         startForeground(FOREGROUND_NOTIFICATION_ID, notificationBuilder.build());
 
         Intent intent = new Intent(VPN_UPDATE_STATUS_INTENT);
-        intent.putExtra(VPN_UPDATE_STATUS_EXTRA, status);
+        intent.putExtra(VPN_UPDATE_STATUS_EXTRA, status.currentStatus);
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent);
     }
 
-
     private void startVpn(PendingIntent notificationIntent) {
         notificationBuilder.setContentTitle(getString(R.string.notification_title));
-        if (notificationIntent != null)
+        if (notificationIntent != null) {
             notificationBuilder.setContentIntent(notificationIntent);
-        updateVpnStatus(VPN_STATUS_STARTING);
+        }
 
-        registerReceiver(connectivityChangedReceiver, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
+        status.starting();
+        updateVpnStatus();
+
+        connectivityChangedReceiver.startObserveConnectivtyStateChanges(this);
 
         restartVpnThread();
     }
@@ -149,18 +201,19 @@ public class AdVpnService extends VpnService implements Handler.Callback {
         vpnThread.startThread();
     }
 
-
     private void stopVpnThread() {
         vpnThread.stopThread();
     }
 
     private void waitForNetVpn() {
         stopVpnThread();
-        updateVpnStatus(VPN_STATUS_WAITING_FOR_NETWORK);
+        status.waitingForNetwork();
+        updateVpnStatus();
     }
 
     private void reconnect() {
-        updateVpnStatus(VPN_STATUS_RECONNECTING);
+        status.reconnecting();
+        updateVpnStatus();
         restartVpnThread();
     }
 
@@ -168,11 +221,12 @@ public class AdVpnService extends VpnService implements Handler.Callback {
         Log.i(TAG, "Stopping Service");
         stopVpnThread();
         try {
-            unregisterReceiver(connectivityChangedReceiver);
+            connectivityChangedReceiver.stopObservingConnectivityChanges(this);
         } catch (IllegalArgumentException e) {
             Log.i(TAG, "Ignoring exception on unregistering receiver");
         }
-        updateVpnStatus(VPN_STATUS_STOPPED);
+        status.stopped();
+        updateVpnStatus();
         stopSelf();
     }
 
@@ -180,42 +234,5 @@ public class AdVpnService extends VpnService implements Handler.Callback {
     public void onDestroy() {
         Log.i(TAG, "Destroyed, shutting down");
         stopVpn();
-    }
-
-    @Override
-    public boolean handleMessage(Message message) {
-        if (message == null) {
-            return true;
-        }
-
-        switch (message.what) {
-            case VPN_MSG_STATUS_UPDATE:
-                updateVpnStatus(message.arg1);
-                break;
-            case VPN_MSG_NETWORK_CHANGED:
-                connectivityChanged((Intent) message.obj);
-                break;
-            default:
-                throw new IllegalArgumentException("Invalid message with what = " + message.what);
-        }
-        return true;
-    }
-
-    private void connectivityChanged(Intent intent) {
-        if (intent.getIntExtra(ConnectivityManager.EXTRA_NETWORK_TYPE, 0) == ConnectivityManager.TYPE_VPN) {
-            Log.i(TAG, "Ignoring connectivity changed for our own network");
-            return;
-        }
-
-        if (!ConnectivityManager.CONNECTIVITY_ACTION.equals(intent.getAction())) {
-            Log.e(TAG, "Got bad intent on connectivity changed " + intent.getAction());
-        }
-        if (intent.getBooleanExtra(ConnectivityManager.EXTRA_NO_CONNECTIVITY, false)) {
-            Log.i(TAG, "Connectivity changed to no connectivity, wait for a network");
-            waitForNetVpn();
-        } else {
-            Log.i(TAG, "Network changed, try to reconnect");
-            reconnect();
-        }
     }
 }

@@ -38,9 +38,6 @@ public class StartFragment extends Fragment {
     public static final int REQUEST_START_VPN = 1;
     private static final String TAG = "StartFragment";
 
-    public StartFragment() {
-    }
-
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
@@ -50,12 +47,12 @@ public class StartFragment extends Fragment {
         ImageView view = (ImageView) rootView.findViewById(R.id.start_button);
 
         TextView stateText = (TextView) rootView.findViewById(R.id.state_textview);
-        stateText.setText(getString(AdVpnService.vpnStatusToTextId(AdVpnService.vpnStatus)));
+        stateText.setText(AdVpnService.status.statusString());
 
         view.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
             public boolean onLongClick(View v) {
-                if (AdVpnService.vpnStatus != AdVpnService.VPN_STATUS_STOPPED) {
+                if (!AdVpnService.status.isStopped()) {
                     Log.i(TAG, "Attempting to disconnect");
 
                     Intent intent = new Intent(getActivity(), AdVpnService.class);

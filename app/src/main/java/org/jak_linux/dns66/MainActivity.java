@@ -48,7 +48,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onReceive(Context context, Intent intent) {
             int str_id = intent.getIntExtra(AdVpnService.VPN_UPDATE_STATUS_EXTRA, R.string.notification_stopped);
-            updateStatus(str_id);
+            updateStatus();
         }
     };
     private AHBottomNavigation bottomNavigation;
@@ -214,12 +214,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void updateStatus(int status) {
+    private void updateStatus() {
         if (viewPager.getChildAt(0) == null)
             return;
         TextView stateText = (TextView) viewPager.getChildAt(0).getRootView().findViewById(R.id.state_textview);
         if (stateText != null)
-            stateText.setText(getString(AdVpnService.vpnStatusToTextId(status)));
+            stateText.setText(AdVpnService.status.statusString());
     }
 
     @Override
@@ -231,7 +231,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        updateStatus(AdVpnService.vpnStatus);
+        updateStatus();
         LocalBroadcastManager.getInstance(this)
                 .registerReceiver(vpnServiceBroadcastReceiver, new IntentFilter(AdVpnService.VPN_UPDATE_STATUS_INTENT));
     }
