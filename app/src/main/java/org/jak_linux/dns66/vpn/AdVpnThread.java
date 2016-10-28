@@ -27,7 +27,6 @@ import android.util.Log;
 import org.jak_linux.dns66.Configuration;
 import org.jak_linux.dns66.FileHelper;
 import org.jak_linux.dns66.MainActivity;
-import org.pcap4j.packet.IllegalRawDataException;
 import org.pcap4j.packet.IpV4Packet;
 import org.pcap4j.packet.UdpPacket;
 import org.pcap4j.packet.UnknownPacket;
@@ -91,7 +90,7 @@ class AdVpnThread implements Runnable {
     private FileDescriptor mInterruptFd = null;
     private Set<String> blockedHosts = new HashSet<>();
 
-    public AdVpnThread(VpnService vpnService, Notify notify) {
+    AdVpnThread(VpnService vpnService, Notify notify) {
         this.vpnService = vpnService;
         this.notify = notify;
     }
@@ -115,14 +114,14 @@ class AdVpnThread implements Runnable {
         return out;
     }
 
-    public void startThread() {
+    void startThread() {
         Log.i(TAG, "Starting Vpn Thread");
         thread = new Thread(this, "AdVpnThread");
         thread.start();
         Log.i(TAG, "Vpn Thread started");
     }
 
-    public void stopThread() {
+    void stopThread() {
         Log.i(TAG, "Stopping Vpn Thread");
         if (thread != null) thread.interrupt();
 
@@ -151,9 +150,7 @@ class AdVpnThread implements Runnable {
             return;
         }
 
-        if (notify != null) {
-            notify.run(AdVpnService.VPN_STATUS_STARTING);
-        }
+        notify.run(AdVpnService.VPN_STATUS_STARTING);
 
         int retryTimeout = MIN_RETRY_TIME;
         // Try connecting the vpn continuously
@@ -171,13 +168,11 @@ class AdVpnThread implements Runnable {
                 // are exceptions that we expect to happen from network errors
                 Log.w(TAG, "Network exception in vpn thread, ignoring and reconnecting", e);
                 // If an exception was thrown, show to the user and try again
-                if (notify != null)
-                    notify.run(AdVpnService.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
+                notify.run(AdVpnService.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
             } catch (Exception e) {
                 Log.e(TAG, "Network exception in vpn thread, reconnecting", e);
                 //ExceptionHandler.saveException(e, Thread.currentThread(), null);
-                if (notify != null)
-                    notify.run(AdVpnService.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
+                notify.run(AdVpnService.VPN_STATUS_RECONNECTING_NETWORK_ERROR);
             }
 
             // ...wait and try again
@@ -188,12 +183,12 @@ class AdVpnThread implements Runnable {
                 break;
             }
 
-            if (retryTimeout < MAX_RETRY_TIME)
+            if (retryTimeout < MAX_RETRY_TIME) {
                 retryTimeout *= 2;
+            }
         }
 
-        if (notify != null)
-            notify.run(AdVpnService.VPN_STATUS_STOPPING);
+        notify.run(AdVpnService.VPN_STATUS_STOPPING);
         Log.i(TAG, "Exiting");
     }
 
@@ -213,8 +208,7 @@ class AdVpnThread implements Runnable {
             FileOutputStream outFd = new FileOutputStream(pfd.getFileDescriptor());
 
             // Now we are connected. Set the flag and show the message.
-            if (notify != null)
-                notify.run(AdVpnService.VPN_STATUS_RUNNING);
+            notify.run(AdVpnService.VPN_STATUS_RUNNING);
 
             // We keep forwarding packets till something goes wrong.
             while (doOne(inputStream, outFd, packet))
@@ -232,8 +226,9 @@ class AdVpnThread implements Runnable {
         blockFd.fd = mBlockFd;
         blockFd.events = (short) (OsConstants.POLLHUP | OsConstants.POLLERR);
 
-        if (!deviceWrites.isEmpty())
+        if (!deviceWrites.isEmpty()) {
             deviceFd.events |= (short) OsConstants.POLLOUT;
+        }
 
         DatagramSocket[] others = new DatagramSocket[dnsIn.size()];
         dnsIn.keySet().toArray(others);
@@ -248,7 +243,7 @@ class AdVpnThread implements Runnable {
         }
 
         Log.d(TAG, "doOne: Polling " + polls.length + " file descriptors");
-        int result = FileHelper.poll(polls, -1);
+        FileHelper.poll(polls, -1);
         if (blockFd.revents != 0) {
             Log.i(TAG, "Told to stop VPN");
             return false;
@@ -311,7 +306,7 @@ class AdVpnThread implements Runnable {
 
     private void handleDnsRequest(byte[] packet) throws VpnNetworkException {
 
-        IpV4Packet parsedPacket = null;
+        IpV4Packet parsedPacket;
         try {
             parsedPacket = IpV4Packet.newPacket(packet, 0, packet.length);
         } catch (Exception e) {
@@ -361,7 +356,6 @@ class AdVpnThread implements Runnable {
                     }
                 }
                 Log.w(TAG, "handleDnsRequest: Could not send packet to upstream", e);
-                return;
             }
         } else {
             Log.i(TAG, "handleDnsRequest: DNS Name " + dnsQueryName + " Blocked!");
@@ -501,7 +495,7 @@ class AdVpnThread implements Runnable {
         Configuration config = FileHelper.loadCurrentSettings(vpnService);
         if (config.dnsServers.enabled) {
             for (Configuration.Item item : config.dnsServers.items) {
-                if (item.state == item.STATE_ALLOW) {
+                if (item.state == Configuration.Item.STATE_ALLOW) {
                     Log.i(TAG, "configure: Adding DNS Server " + item.location);
                     try {
                         builder.addDnsServer(item.location);
@@ -544,7 +538,7 @@ class AdVpnThread implements Runnable {
         return pfd;
     }
 
-    public interface Notify {
+    interface Notify {
         void run(int value);
     }
 
@@ -563,16 +557,16 @@ class AdVpnThread implements Runnable {
         private final T value;
         private final long time;
 
-        public TimedValue(T value) {
+        TimedValue(T value) {
             this.value = value;
             this.time = System.currentTimeMillis();
         }
 
-        public long ageSeconds() {
+        long ageSeconds() {
             return (System.currentTimeMillis() - time) / 1000;
         }
 
-        public T get() {
+        T get() {
             return value;
         }
     }
