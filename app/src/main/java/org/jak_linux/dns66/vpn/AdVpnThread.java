@@ -19,6 +19,7 @@ import android.system.StructPollfd;
 import android.util.Log;
 
 import org.jak_linux.dns66.FileHelper;
+import org.pcap4j.packet.IllegalRawDataException;
 import org.pcap4j.packet.IpV4Packet;
 import org.pcap4j.packet.UdpPacket;
 import org.pcap4j.packet.UnknownPacket;
@@ -121,8 +122,8 @@ class AdVpnThread implements Runnable {
         }
     };
     private Thread thread = null;
-    private FileDescriptor mBlockFd = null;
-    private FileDescriptor mInterruptFd = null;
+    private FileDescriptor blockfd = null;
+    private FileDescriptor interruptFd = null;
     private Set<String> blockedHosts = new HashSet<>();
     private BlockedHostProvider blockedHostProvider;
 
@@ -133,7 +134,7 @@ class AdVpnThread implements Runnable {
         this.blockedHostProvider = blockedHostProvider;
     }
 
-    void startThread() {
+    private void startThread() {
         Log.i(TAG, "Starting Vpn Thread");
         thread = new Thread(this, "AdVpnThread");
         thread.start();
@@ -148,7 +149,7 @@ class AdVpnThread implements Runnable {
 
         thread.interrupt();
 
-        mInterruptFd = FileHelper.closeOrWarn(mInterruptFd, TAG, "stopThread: Could not close interruptFd");
+        interruptFd = FileHelper.closeOrWarn(interruptFd, TAG, "stopThread: Could not close interruptFd");
         try {
             thread.join(2000);
         } catch (InterruptedException e) {
@@ -215,8 +216,8 @@ class AdVpnThread implements Runnable {
 
         // A pipe we can interrupt the poll() call with by closing the interruptFd end
         FileDescriptor[] pipes = Os.pipe();
-        mInterruptFd = pipes[0];
-        mBlockFd = pipes[1];
+        interruptFd = pipes[0];
+        blockfd = pipes[1];
 
         // Authenticate and configure the virtual network interface.
         try (ParcelFileDescriptor pfd = vpnFileDescriptorProvider.retrieve()) {
@@ -228,64 +229,46 @@ class AdVpnThread implements Runnable {
             statusObserver.running();
 
             // We keep forwarding packets till something goes wrong.
-            while (doOne(inFd, outFd, packet))
-                ;
+            while (readPacket(inFd, outFd, packet)) {
+
+            }
         } finally {
-            mBlockFd = FileHelper.closeOrWarn(mBlockFd, TAG, "runVpn: Could not close blockFd");
+            blockfd = FileHelper.closeOrWarn(blockfd, TAG, "runVpn: Could not close blockFd");
         }
     }
 
-    private boolean doOne(FileInputStream inFd, FileOutputStream outFd, byte[] packet) throws IOException, ErrnoException, InterruptedException, VpnNetworkException {
-        StructPollfd deviceFd = new StructPollfd();
-        deviceFd.fd = inFd.getFD();
-        deviceFd.events = (short) OsConstants.POLLIN;
+    private boolean readPacket(FileInputStream inFd, FileOutputStream outFd, byte[] packet) throws IOException, ErrnoException, InterruptedException, VpnNetworkException {
+        PollGroup pollGroup = new PollGroup(inFd.getFD(), blockfd, dnsIn.keySet());
 
-        StructPollfd blockFd = new StructPollfd();
-        blockFd.fd = mBlockFd;
-        blockFd.events = (short) (OsConstants.POLLHUP | OsConstants.POLLERR);
-
-        if (!deviceWrites.isEmpty()) {
-            deviceFd.events |= (short) OsConstants.POLLOUT;
-        }
-
-        DatagramSocket[] others = new DatagramSocket[dnsIn.size()];
-        dnsIn.keySet().toArray(others);
-
-        StructPollfd[] polls = new StructPollfd[2 + others.length];
-        polls[0] = deviceFd;
-        polls[1] = blockFd;
-
-        for (int i = 0; i < others.length; i++) {
-            StructPollfd pollFd = polls[2 + i] = new StructPollfd();
-            pollFd.fd = ParcelFileDescriptor.fromDatagramSocket(others[i]).getFileDescriptor();
-            pollFd.events = (short) OsConstants.POLLIN;
-        }
-
-        FileHelper.poll(polls, -1);
-        if (blockFd.revents != 0) {
-            return false;
-        }
-
-        for (int i = 0; i < others.length; i++) {
-            if ((polls[i + 2].revents & OsConstants.POLLIN) != 0) {
-                DatagramSocket socket = others[i];
+        try {
+            return pollGroup.poll((DatagramSocket socket) -> {
                 IpV4Packet parsedPacket = dnsIn.get(socket).get();
-                Log.d(TAG, "Read from DNS socket" + socket);
                 dnsIn.remove(socket);
+
                 handleRawDnsResponse(parsedPacket, socket);
+
                 socket.close();
-            }
-        }
+            }, (StructPollfd fd) -> {
+                if ((fd.revents & OsConstants.POLLOUT) != 0) {
+                    try {
+                        writeToDevice(outFd);
+                    } catch (VpnNetworkException e) {
+                        throw new PollGroup.PollGroupException(e);
+                    }
+                }
 
-        if ((deviceFd.revents & OsConstants.POLLOUT) != 0) {
-            writeToDevice(outFd);
+                if ((fd.revents & OsConstants.POLLIN) != 0) {
+                    try {
+                        readPacketFromDevice(inFd, packet);
+                    } catch (VpnNetworkException e) {
+                        throw new PollGroup.PollGroupException(e);
+                    }
+                }
+            });
+        } catch (PollGroup.PollGroupException e) {
+            e.printStackTrace();
+            throw new VpnNetworkException("Poll failed", e);
         }
-
-        if ((deviceFd.revents & OsConstants.POLLIN) != 0) {
-            readPacketFromDevice(inFd, packet);
-        }
-
-        return true;
     }
 
     private void writeToDevice(FileOutputStream outFd) throws VpnNetworkException {
@@ -320,7 +303,7 @@ class AdVpnThread implements Runnable {
         IpV4Packet parsedPacket;
         try {
             parsedPacket = IpV4Packet.newPacket(packet, 0, packet.length);
-        } catch (Exception e) {
+        } catch (IllegalRawDataException e) {
             Log.i(TAG, "handleDnsRequest: Discarding invalid IPv4 packet", e);
             return;
         }
@@ -407,7 +390,7 @@ class AdVpnThread implements Runnable {
         deviceWrites.add(ipOutPacket.getRawData());
     }
 
-    public void restartThread() {
+    void restartThread() {
         stopThread();
         startThread();
     }

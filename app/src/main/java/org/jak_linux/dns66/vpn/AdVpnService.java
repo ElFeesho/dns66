@@ -19,7 +19,6 @@ import android.os.Handler;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.content.LocalBroadcastManager;
-import android.util.Log;
 
 import org.jak_linux.dns66.Configuration;
 import org.jak_linux.dns66.R;
@@ -40,9 +39,10 @@ public class AdVpnService extends VpnService {
         Configuration retrieveConfig();
     }
 
-    public static final String VPN_UPDATE_STATUS_INTENT = "org.jak_linux.dns66.VPN_UPDATE_STATUS";
-    private static final int FOREGROUND_NOTIFICATION_ID = 10;
     private static final String TAG = "VpnService";
+    private static final int FOREGROUND_NOTIFICATION_ID = 10;
+
+    public static final String VPN_UPDATE_STATUS_INTENT = "org.jak_linux.dns66.VPN_UPDATE_STATUS";
     public static final String KEY_NOTIFICATION_INTENT = "NOTIFICATION_INTENT";
     public static VpnStatus status = new VpnStatus();
 
@@ -101,7 +101,6 @@ public class AdVpnService extends VpnService {
 
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
-        Log.i(TAG, "onStartCommand");
         Command command = extractCommandFromIntent(intent);
         if (command == Command.START) {
             if (intent != null) {
@@ -166,7 +165,6 @@ public class AdVpnService extends VpnService {
     }
 
     private void stopVpn() {
-        Log.i(TAG, "Stopping Service");
         stopVpnThread();
         connectivityChangedReceiver.stopObservingConnectivityChanges(this);
         status.stopped();
@@ -176,7 +174,6 @@ public class AdVpnService extends VpnService {
 
     @Override
     public void onDestroy() {
-        Log.i(TAG, "Destroyed, shutting down");
         stopVpn();
     }
 }
