@@ -61,3 +61,7 @@ Authors
 Julian Andres Klode <jak@jak-linux.org>
 
 Parts are derived from https://github.com/dbrodie/AdBuster by Daniel Brodie.
+
+Fork Notes
+----------
+This fork is for learning (and fun) only.
