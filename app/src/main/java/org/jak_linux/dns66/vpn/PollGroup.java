@@ -34,8 +34,8 @@ class PollGroup {
     private StructPollfd blockFd;
     private DatagramSocket[] others;
 
-    PollGroup(FileDescriptor inFd, FileDescriptor blockfd, Set<DatagramSocket> datagramSockets) {
-        this.deviceFd = createPollFdForFileDescriptorWithEvents(inFd, (short) (OsConstants.POLLIN | OsConstants.POLLOUT));
+    PollGroup(FileDescriptor inFd, FileDescriptor blockfd, Set<DatagramSocket> datagramSockets, boolean canWrite) {
+        this.deviceFd = createPollFdForFileDescriptorWithEvents(inFd, (short) (OsConstants.POLLIN | (canWrite?OsConstants.POLLOUT:0)));
         this.blockFd = createPollFdForFileDescriptorWithEvents(blockfd, (short) (OsConstants.POLLHUP | OsConstants.POLLERR));
 
         this.others = new DatagramSocket[datagramSockets.size()];

@@ -15,17 +15,24 @@ class ConnectivityChangeAnnouncer extends BroadcastReceiver {
     }
 
     private final Callback connectivityCallback;
+    private boolean registered = false;
 
     ConnectivityChangeAnnouncer(Callback connectivityCallback) {
         this.connectivityCallback = connectivityCallback;
     }
 
     public void startObserveConnectivtyStateChanges(Context context) {
-        context.registerReceiver(this, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
+        if (!registered) {
+            context.registerReceiver(this, new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION));
+            registered = true;
+        }
     }
 
     public void stopObservingConnectivityChanges(Context context) {
-        context.unregisterReceiver(this);
+        if (registered) {
+            context.unregisterReceiver(this);
+            registered = false;
+        }
     }
 
     @Override

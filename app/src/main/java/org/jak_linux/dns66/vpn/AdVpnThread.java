@@ -229,16 +229,18 @@ class AdVpnThread implements Runnable {
             statusObserver.running();
 
             // We keep forwarding packets till something goes wrong.
+            long packetCount = 0;
             while (readPacket(inFd, outFd, packet)) {
-
+                packetCount++;
             }
+            Log.d(TAG, "Handled a total of " + packetCount);
         } finally {
             blockfd = FileHelper.closeOrWarn(blockfd, TAG, "runVpn: Could not close blockFd");
         }
     }
 
     private boolean readPacket(FileInputStream inFd, FileOutputStream outFd, byte[] packet) throws IOException, ErrnoException, InterruptedException, VpnNetworkException {
-        PollGroup pollGroup = new PollGroup(inFd.getFD(), blockfd, dnsIn.keySet());
+        PollGroup pollGroup = new PollGroup(inFd.getFD(), blockfd, dnsIn.keySet(), !deviceWrites.isEmpty());
 
         try {
             return pollGroup.poll((DatagramSocket socket) -> {
