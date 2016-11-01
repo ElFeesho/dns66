@@ -9,10 +9,6 @@
  */
 package org.jak_linux.dns66.vpn;
 
-/**
- * Created by jak on 18/10/16.
- */
-
 public enum Command {
     START, STOP
 }
