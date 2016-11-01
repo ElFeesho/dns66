@@ -38,6 +38,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 
@@ -52,7 +53,7 @@ class AdVpnThread implements Runnable {
         void protect(DatagramSocket socket);
     }
 
-    interface Notify {
+    interface StatusObserver {
         void running();
         void starting();
         void reconnectingAfterNetworkError();
@@ -100,7 +101,7 @@ class AdVpnThread implements Runnable {
     // Apps using DownloadManager that are known to be broken on Nougat when a VPN is active, see
     // issue #31 for further details.
 
-    private final Notify notify;
+    private final StatusObserver statusObserver;
     private final SocketProtector socketProtector;
     private final VpnFileDescriptorProvider vpnFileDescriptorProvider;
     /* Data to be written to the device */
@@ -108,7 +109,7 @@ class AdVpnThread implements Runnable {
     // HashMap that keeps an upper limit of packets
     private final LinkedHashMap<DatagramSocket, TimedValue<IpV4Packet>> dnsIn = new LinkedHashMap<DatagramSocket, TimedValue<IpV4Packet>>() {
         @Override
-        protected boolean removeEldestEntry(Entry<DatagramSocket, TimedValue<IpV4Packet>> eldest) {
+        protected boolean removeEldestEntry(Map.Entry<DatagramSocket, TimedValue<IpV4Packet>> eldest) {
             boolean timeout = eldest.getValue().ageSeconds() > DNS_TIMEOUT_SEC;
             boolean overflow = size() > DNS_MAXIMUM_WAITING;
             if (timeout || overflow) {
@@ -125,8 +126,8 @@ class AdVpnThread implements Runnable {
     private Set<String> blockedHosts = new HashSet<>();
     private BlockedHostProvider blockedHostProvider;
 
-    AdVpnThread(Notify notify, SocketProtector socketProtector, VpnFileDescriptorProvider vpnFileDescriptorProvider, BlockedHostProvider blockedHostProvider) {
-        this.notify = notify;
+    AdVpnThread(StatusObserver statusObserver, SocketProtector socketProtector, VpnFileDescriptorProvider vpnFileDescriptorProvider, BlockedHostProvider blockedHostProvider) {
+        this.statusObserver = statusObserver;
         this.socketProtector = socketProtector;
         this.vpnFileDescriptorProvider = vpnFileDescriptorProvider;
         this.blockedHostProvider = blockedHostProvider;
@@ -163,16 +164,14 @@ class AdVpnThread implements Runnable {
 
     @Override
     public synchronized void run() {
-        Log.i(TAG, "Starting");
 
-        // Load the block list
         try {
             blockedHosts = blockedHostProvider.retrieveBlockedHosts();
         } catch (InterruptedException e) {
             return;
         }
 
-        notify.starting();
+        statusObserver.starting();
 
         int retryTimeout = MIN_RETRY_TIME;
         // Try connecting the vpn continuously
@@ -190,11 +189,11 @@ class AdVpnThread implements Runnable {
                 // are exceptions that we expect to happen from network errors
                 Log.w(TAG, "Network exception in vpn thread, ignoring and reconnecting", e);
                 // If an exception was thrown, show to the user and try again
-                notify.reconnectingAfterNetworkError();
+                statusObserver.reconnectingAfterNetworkError();
             } catch (Exception e) {
                 Log.e(TAG, "Network exception in vpn thread, reconnecting", e);
                 //ExceptionHandler.saveException(e, Thread.currentThread(), null);
-                notify.reconnectingAfterNetworkError();
+                statusObserver.reconnectingAfterNetworkError();
             }
 
             // ...wait and try again
@@ -206,7 +205,7 @@ class AdVpnThread implements Runnable {
             }
         }
 
-        notify.stopping();
+        statusObserver.stopping();
         Log.i(TAG, "Exiting");
     }
 
@@ -222,24 +221,25 @@ class AdVpnThread implements Runnable {
         // Authenticate and configure the virtual network interface.
         try (ParcelFileDescriptor pfd = vpnFileDescriptorProvider.retrieve()) {
             // Read and write views of the tun device
-            FileInputStream inputStream = new FileInputStream(pfd.getFileDescriptor());
+            FileInputStream inFd = new FileInputStream(pfd.getFileDescriptor());
             FileOutputStream outFd = new FileOutputStream(pfd.getFileDescriptor());
 
             // Now we are connected. Set the flag and show the message.
-            notify.running();
+            statusObserver.running();
 
             // We keep forwarding packets till something goes wrong.
-            while (doOne(inputStream, outFd, packet))
+            while (doOne(inFd, outFd, packet))
                 ;
         } finally {
             mBlockFd = FileHelper.closeOrWarn(mBlockFd, TAG, "runVpn: Could not close blockFd");
         }
     }
 
-    private boolean doOne(FileInputStream inputStream, FileOutputStream outFd, byte[] packet) throws IOException, ErrnoException, InterruptedException, VpnNetworkException {
+    private boolean doOne(FileInputStream inFd, FileOutputStream outFd, byte[] packet) throws IOException, ErrnoException, InterruptedException, VpnNetworkException {
         StructPollfd deviceFd = new StructPollfd();
-        deviceFd.fd = inputStream.getFD();
+        deviceFd.fd = inFd.getFD();
         deviceFd.events = (short) OsConstants.POLLIN;
+
         StructPollfd blockFd = new StructPollfd();
         blockFd.fd = mBlockFd;
         blockFd.events = (short) (OsConstants.POLLHUP | OsConstants.POLLERR);
@@ -254,21 +254,18 @@ class AdVpnThread implements Runnable {
         StructPollfd[] polls = new StructPollfd[2 + others.length];
         polls[0] = deviceFd;
         polls[1] = blockFd;
+
         for (int i = 0; i < others.length; i++) {
             StructPollfd pollFd = polls[2 + i] = new StructPollfd();
             pollFd.fd = ParcelFileDescriptor.fromDatagramSocket(others[i]).getFileDescriptor();
             pollFd.events = (short) OsConstants.POLLIN;
         }
 
-        Log.d(TAG, "doOne: Polling " + polls.length + " file descriptors");
         FileHelper.poll(polls, -1);
         if (blockFd.revents != 0) {
-            Log.i(TAG, "Told to stop VPN");
             return false;
         }
-        // Need to do this before reading from the device, otherwise a new insertion there could
-        // invalidate one of the sockets we want to read from either due to size or time out
-        // constraints
+
         for (int i = 0; i < others.length; i++) {
             if ((polls[i + 2].revents & OsConstants.POLLIN) != 0) {
                 DatagramSocket socket = others[i];
@@ -279,13 +276,13 @@ class AdVpnThread implements Runnable {
                 socket.close();
             }
         }
+
         if ((deviceFd.revents & OsConstants.POLLOUT) != 0) {
-            Log.d(TAG, "Write to device");
             writeToDevice(outFd);
         }
+
         if ((deviceFd.revents & OsConstants.POLLIN) != 0) {
-            Log.d(TAG, "Read from device");
-            readPacketFromDevice(inputStream, packet);
+            readPacketFromDevice(inFd, packet);
         }
 
         return true;
@@ -295,7 +292,6 @@ class AdVpnThread implements Runnable {
         try {
             outFd.write(deviceWrites.poll());
         } catch (IOException e) {
-            // TODO: Make this more specific, only for: "File descriptor closed"
             throw new VpnNetworkException("Outgoing VPN output stream closed");
         }
     }

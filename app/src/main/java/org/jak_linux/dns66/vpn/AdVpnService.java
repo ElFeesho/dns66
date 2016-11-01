@@ -12,7 +12,6 @@ package org.jak_linux.dns66.vpn;
 import android.app.Notification;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.VpnService;
@@ -23,8 +22,6 @@ import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 
 import org.jak_linux.dns66.Configuration;
-import org.jak_linux.dns66.FileHelper;
-import org.jak_linux.dns66.MainActivity;
 import org.jak_linux.dns66.R;
 
 import java.net.InetAddress;
@@ -42,46 +39,18 @@ public class AdVpnService extends VpnService {
     interface ConfigProvider {
         Configuration retrieveConfig();
     }
+
     public static final String VPN_UPDATE_STATUS_INTENT = "org.jak_linux.dns66.VPN_UPDATE_STATUS";
     private static final int FOREGROUND_NOTIFICATION_ID = 10;
     private static final String TAG = "VpnService";
+    public static final String KEY_NOTIFICATION_INTENT = "NOTIFICATION_INTENT";
     public static VpnStatus status = new VpnStatus();
 
     private final Handler handler = new Handler();
 
     private final NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this).setSmallIcon(R.drawable.ic_menu_info).setPriority(Notification.PRIORITY_MIN);
 
-    private final ContextConfigProvider configProvider = new ContextConfigProvider(this);
-
-    private final AdVpnThread vpnThread = new AdVpnThread(
-            new AdVpnThread.Notify() {
-                @Override
-                public void running() {
-                    status.running();
-                    handler.post(()->updateVpnStatus());
-                }
-
-                @Override
-                public void starting() {
-                    status.starting();
-                    handler.post(()->updateVpnStatus());
-                }
-
-                @Override
-                public void reconnectingAfterNetworkError() {
-                    status.reconnectingAfterNetworkError();
-                    handler.post(()->updateVpnStatus());
-                }
-
-                @Override
-                public void stopping() {
-                    status.stopping();
-                    handler.post(()->updateVpnStatus());
-                }
-            },
-            new VpnServiceSocketProtector(AdVpnService.this),
-            new VpnServiceVpnFileDescriptorProvider(this, new ConnectivityManagerDnsServerListProvider((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)), configProvider),
-            new FileBlockedHostProvider(configProvider, this));
+    private AdVpnThread vpnThread;
 
     private final ConnectivityChangeAnnouncer connectivityChangedReceiver = new ConnectivityChangeAnnouncer(new ConnectivityChangeAnnouncer.Callback() {
         @Override
@@ -95,23 +64,39 @@ public class AdVpnService extends VpnService {
         }
     });
 
-    public static void checkStartVpnOnBoot(Context context) {
-        Log.i("BOOT", "Checking whether to start ad buster on boot");
-        Configuration config = FileHelper.loadCurrentSettings(context);
-        if (config == null || !config.autoStart) {
-            return;
-        }
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        ContextConfigProvider configProvider = new ContextConfigProvider(this);
+        vpnThread = new AdVpnThread(
+                new AdVpnThread.StatusObserver() {
+                    @Override
+                    public void running() {
+                        status.running();
+                        handler.post(() -> updateVpnStatus());
+                    }
 
-        if (VpnService.prepare(context) != null) {
-            Log.i("BOOT", "VPN preparation not confirmed by user, changing enabled to false");
-        }
+                    @Override
+                    public void starting() {
+                        status.starting();
+                        handler.post(() -> updateVpnStatus());
+                    }
 
-        Log.i("BOOT", "Starting ad buster from boot");
+                    @Override
+                    public void reconnectingAfterNetworkError() {
+                        status.reconnectingAfterNetworkError();
+                        handler.post(() -> updateVpnStatus());
+                    }
 
-        Intent intent = new Intent(context, AdVpnService.class);
-        intent.putExtra("COMMAND", Command.START.ordinal());
-        intent.putExtra("NOTIFICATION_INTENT", PendingIntent.getActivity(context, 0, new Intent(context, MainActivity.class), 0));
-        context.startService(intent);
+                    @Override
+                    public void stopping() {
+                        status.stopping();
+                        handler.post(() -> updateVpnStatus());
+                    }
+                },
+                new VpnServiceSocketProtector(AdVpnService.this),
+                new VpnServiceVpnFileDescriptorProvider(this, new ConnectivityManagerDnsServerListProvider((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)), configProvider),
+                new FileBlockedHostProvider(configProvider, this));
     }
 
     @Override
@@ -120,7 +105,7 @@ public class AdVpnService extends VpnService {
         Command command = extractCommandFromIntent(intent);
         if (command == Command.START) {
             if (intent != null) {
-                PendingIntent notificationIntent = intent.getParcelableExtra("NOTIFICATION_INTENT");
+                PendingIntent notificationIntent = intent.getParcelableExtra(KEY_NOTIFICATION_INTENT);
                 if (notificationIntent != null) {
                     updateNotificationIntent(notificationIntent);
                 }

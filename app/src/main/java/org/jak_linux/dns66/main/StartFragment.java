@@ -9,7 +9,6 @@ package org.jak_linux.dns66.main;
 
 import android.app.AlertDialog;
 import android.app.PendingIntent;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.VpnService;
 import android.os.Bundle;
@@ -18,7 +17,6 @@ import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.CompoundButton;
 import android.widget.ImageView;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -49,29 +47,23 @@ public class StartFragment extends Fragment {
         TextView stateText = (TextView) rootView.findViewById(R.id.state_textview);
         stateText.setText(AdVpnService.status.statusString());
 
-        view.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View v) {
-                if (!AdVpnService.status.isStopped()) {
-                    Log.i(TAG, "Attempting to disconnect");
+        view.setOnLongClickListener(v -> {
+            if (!AdVpnService.status.isStopped()) {
+                Log.i(TAG, "Attempting to disconnect");
 
-                    Intent intent = new Intent(getActivity(), AdVpnService.class);
-                    intent.putExtra("COMMAND", org.jak_linux.dns66.vpn.Command.STOP.ordinal());
-                    getActivity().startService(intent);
-                } else {
-                    checkHostsFilesAndStartService();
-                }
-                return true;
+                Intent intent = new Intent(getActivity(), AdVpnService.class);
+                intent.putExtra("COMMAND", Command.STOP.ordinal());
+                getActivity().startService(intent);
+            } else {
+                checkHostsFilesAndStartService();
             }
+            return true;
         });
 
         switchOnBoot.setChecked(MainActivity.config.autoStart);
-        switchOnBoot.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                MainActivity.config.autoStart = isChecked;
-                FileHelper.writeSettings(getContext(), MainActivity.config);
-            }
+        switchOnBoot.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            MainActivity.config.autoStart = isChecked;
+            FileHelper.writeSettings(getContext(), MainActivity.config);
         });
 
         return rootView;
@@ -83,18 +75,8 @@ public class StartFragment extends Fragment {
                     .setIcon(R.drawable.ic_warning)
                     .setTitle(R.string.missing_hosts_files_title)
                     .setMessage(R.string.missing_hosts_files_message)
-                    .setNegativeButton(R.string.button_no, new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, int which) {
-                            /* Do nothing */
-                        }
-                    })
-                    .setPositiveButton(R.string.button_yes, new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, int which) {
-                            startService();
-                        }
-                    })
+                    .setNegativeButton(R.string.button_no, null)
+                    .setPositiveButton(R.string.button_yes, (dialog, which) -> startService())
                     .show();
             return;
         }
@@ -137,7 +119,7 @@ public class StartFragment extends Fragment {
             Log.d("MainActivity", "onActivityResult: Starting service");
             Intent intent = new Intent(getContext(), AdVpnService.class);
             intent.putExtra("COMMAND", Command.START.ordinal());
-            intent.putExtra("NOTIFICATION_INTENT",
+            intent.putExtra(AdVpnService.KEY_NOTIFICATION_INTENT,
                     PendingIntent.getActivity(getContext(), 0,
                             new Intent(getContext(), MainActivity.class), 0));
             getContext().startService(intent);
