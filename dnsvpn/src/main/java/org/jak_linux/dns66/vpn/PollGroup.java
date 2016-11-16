@@ -6,8 +6,6 @@ import android.system.ErrnoException;
 import android.system.OsConstants;
 import android.system.StructPollfd;
 
-import org.jak_linux.dns66.FileHelper;
-
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.net.DatagramSocket;

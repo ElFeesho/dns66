@@ -15,8 +15,8 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
 
-import org.jak_linux.dns66.Configuration;
-import org.jak_linux.dns66.FileHelper;
+import org.jak_linux.dns66.vpn.Configuration;
+import org.jak_linux.dns66.vpn.FileHelper;
 import org.jak_linux.dns66.ItemChangedListener;
 import org.jak_linux.dns66.MainActivity;
 import org.jak_linux.dns66.R;

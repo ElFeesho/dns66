@@ -5,9 +5,6 @@ import android.content.Intent;
 import android.net.VpnService;
 import android.os.ParcelFileDescriptor;
 
-import org.jak_linux.dns66.Configuration;
-import org.jak_linux.dns66.MainActivity;
-
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.util.Collection;
@@ -75,6 +72,6 @@ class VpnServiceVpnFileDescriptorProvider implements AdVpnThread.VpnFileDescript
         }
 
         // Create a new interface using the builder and save the parameters.
-        return builder.setSession("DNS66").setConfigureIntent(PendingIntent.getActivity(vpnService, 1, new Intent(vpnService, MainActivity.class), PendingIntent.FLAG_CANCEL_CURRENT)).establish();
+        return builder.setSession("DNS66").setConfigureIntent(PendingIntent.getActivity(vpnService, 1, new Intent().setClassName("org.jak_linux.dns66", "org.jak_linux.dns66.MainActivity"), PendingIntent.FLAG_CANCEL_CURRENT)).establish();
     }
 }

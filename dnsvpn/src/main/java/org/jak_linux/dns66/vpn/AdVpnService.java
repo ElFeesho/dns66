@@ -20,8 +20,7 @@ import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.content.LocalBroadcastManager;
 
-import org.jak_linux.dns66.Configuration;
-import org.jak_linux.dns66.R;
+import org.jak_linux.vpn.lib.R;
 
 import java.net.InetAddress;
 import java.util.Collection;
@@ -55,12 +54,22 @@ public class AdVpnService extends VpnService {
     private final ConnectivityChangeAnnouncer connectivityChangedReceiver = new ConnectivityChangeAnnouncer(new ConnectivityChangeAnnouncer.Callback() {
         @Override
         public void connectivityChanged() {
-            handler.post(() -> reconnect());
+            handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    reconnect();
+                }
+            });
         }
 
         @Override
         public void noNetworkDetected() {
-            handler.post(() -> waitForNetVpn());
+            handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    waitForNetVpn();
+                }
+            });
         }
     });
 
@@ -73,25 +82,45 @@ public class AdVpnService extends VpnService {
                     @Override
                     public void running() {
                         status.running();
-                        handler.post(() -> updateVpnStatus());
+                        handler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                updateVpnStatus();
+                            }
+                        });
                     }
 
                     @Override
                     public void starting() {
                         status.starting();
-                        handler.post(() -> updateVpnStatus());
+                        handler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                updateVpnStatus();
+                            }
+                        });
                     }
 
                     @Override
                     public void reconnectingAfterNetworkError() {
                         status.reconnectingAfterNetworkError();
-                        handler.post(() -> updateVpnStatus());
+                        handler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                updateVpnStatus();
+                            }
+                        });
                     }
 
                     @Override
                     public void stopping() {
                         status.stopping();
-                        handler.post(() -> updateVpnStatus());
+                        handler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                updateVpnStatus();
+                            }
+                        });
                     }
                 },
                 new VpnServiceSocketProtector(AdVpnService.this),

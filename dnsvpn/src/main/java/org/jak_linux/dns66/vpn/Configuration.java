@@ -5,7 +5,7 @@
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  */
-package org.jak_linux.dns66;
+package org.jak_linux.dns66.vpn;
 
 import android.util.JsonReader;
 import android.util.JsonWriter;

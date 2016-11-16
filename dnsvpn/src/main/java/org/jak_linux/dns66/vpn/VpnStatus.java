@@ -2,7 +2,7 @@ package org.jak_linux.dns66.vpn;
 
 import android.support.annotation.StringRes;
 
-import org.jak_linux.dns66.R;
+import org.jak_linux.vpn.lib.R;
 
 public class VpnStatus {
 

@@ -11,7 +11,7 @@ import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.helper.ItemTouchHelper;
 import android.util.Log;
 
-import org.jak_linux.dns66.FileHelper;
+import org.jak_linux.dns66.vpn.FileHelper;
 import org.jak_linux.dns66.MainActivity;
 
 import java.util.Collections;

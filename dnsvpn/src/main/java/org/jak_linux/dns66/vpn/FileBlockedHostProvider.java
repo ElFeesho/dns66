@@ -2,9 +2,6 @@ package org.jak_linux.dns66.vpn;
 
 import android.content.Context;
 
-import org.jak_linux.dns66.Configuration;
-import org.jak_linux.dns66.FileHelper;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;

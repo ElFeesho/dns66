@@ -32,6 +32,8 @@ import com.stephentuso.welcome.WelcomeHelper;
 
 import org.jak_linux.dns66.main.MainFragmentPagerAdapter;
 import org.jak_linux.dns66.vpn.AdVpnService;
+import org.jak_linux.dns66.vpn.Configuration;
+import org.jak_linux.dns66.vpn.FileHelper;
 
 import java.io.File;
 import java.io.InputStreamReader;

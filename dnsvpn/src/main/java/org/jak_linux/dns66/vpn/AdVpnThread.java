@@ -18,7 +18,6 @@ import android.system.OsConstants;
 import android.system.StructPollfd;
 import android.util.Log;
 
-import org.jak_linux.dns66.FileHelper;
 import org.pcap4j.packet.IllegalRawDataException;
 import org.pcap4j.packet.IpV4Packet;
 import org.pcap4j.packet.UdpPacket;
@@ -121,6 +120,7 @@ class AdVpnThread implements Runnable {
             return false;
         }
     };
+
     private Thread thread = null;
     private FileDescriptor blockfd = null;
     private FileDescriptor interruptFd = null;
@@ -135,10 +135,8 @@ class AdVpnThread implements Runnable {
     }
 
     private void startThread() {
-        Log.i(TAG, "Starting Vpn Thread");
         thread = new Thread(this, "AdVpnThread");
         thread.start();
-        Log.i(TAG, "Vpn Thread started");
     }
 
     void stopThread() {
@@ -239,31 +237,40 @@ class AdVpnThread implements Runnable {
         }
     }
 
-    private boolean readPacket(FileInputStream inFd, FileOutputStream outFd, byte[] packet) throws IOException, ErrnoException, InterruptedException, VpnNetworkException {
+    private boolean readPacket(final FileInputStream inFd, final FileOutputStream outFd, final byte[] packet) throws IOException, ErrnoException, InterruptedException, VpnNetworkException {
         PollGroup pollGroup = new PollGroup(inFd.getFD(), blockfd, dnsIn.keySet(), !deviceWrites.isEmpty());
 
         try {
-            return pollGroup.poll((DatagramSocket socket) -> {
-                IpV4Packet parsedPacket = dnsIn.get(socket).get();
-                dnsIn.remove(socket);
+            return pollGroup.poll(new PollGroup.ReadySocketCallback() {
+                @Override
+                public void ready(DatagramSocket socket) throws IOException {
+                    IpV4Packet parsedPacket = dnsIn.get(socket).get();
+                    dnsIn.remove(socket);
 
-                handleRawDnsResponse(parsedPacket, socket);
+                    byte[] datagramData = new byte[1024];
+                    DatagramPacket replyPacket = new DatagramPacket(datagramData, datagramData.length);
+                    socket.receive(replyPacket);
+                    AdVpnThread.this.handleDnsResponse(parsedPacket, datagramData);
 
-                socket.close();
-            }, (StructPollfd fd) -> {
-                if ((fd.revents & OsConstants.POLLOUT) != 0) {
-                    try {
-                        writeToDevice(outFd);
-                    } catch (VpnNetworkException e) {
-                        throw new PollGroup.PollGroupException(e);
-                    }
+                    socket.close();
                 }
+            }, new PollGroup.ResponseCallback() {
+                @Override
+                public void response(StructPollfd fd) throws SocketException, PollGroup.PollGroupException {
+                    if ((fd.revents & OsConstants.POLLOUT) != 0) {
+                        try {
+                            AdVpnThread.this.writeToDevice(outFd);
+                        } catch (VpnNetworkException e) {
+                            throw new PollGroup.PollGroupException(e);
+                        }
+                    }
 
-                if ((fd.revents & OsConstants.POLLIN) != 0) {
-                    try {
-                        readPacketFromDevice(inFd, packet);
-                    } catch (VpnNetworkException e) {
-                        throw new PollGroup.PollGroupException(e);
+                    if ((fd.revents & OsConstants.POLLIN) != 0) {
+                        try {
+                            AdVpnThread.this.readPacketFromDevice(inFd, packet);
+                        } catch (VpnNetworkException e) {
+                            throw new PollGroup.PollGroupException(e);
+                        }
                     }
                 }
             });
@@ -287,15 +294,15 @@ class AdVpnThread implements Runnable {
 
         try {
             length = inputStream.read(packet);
+            if (length == 0) {
+                // TODO: Possibly change to exception
+                Log.w(TAG, "Got empty packet!");
+                return;
+            }
         } catch (IOException e) {
             throw new VpnNetworkException("Cannot read from device", e);
         }
 
-        if (length == 0) {
-            // TODO: Possibly change to exception
-            Log.w(TAG, "Got empty packet!");
-            return;
-        }
 
         handleDnsRequest(Arrays.copyOfRange(packet, 0, length));
     }
@@ -305,13 +312,12 @@ class AdVpnThread implements Runnable {
         IpV4Packet parsedPacket;
         try {
             parsedPacket = IpV4Packet.newPacket(packet, 0, packet.length);
+            if (!(parsedPacket.getPayload() instanceof UdpPacket)) {
+                Log.i(TAG, "handleDnsRequest: Discarding unknown packet type " + parsedPacket.getPayload());
+                return;
+            }
         } catch (IllegalRawDataException e) {
             Log.i(TAG, "handleDnsRequest: Discarding invalid IPv4 packet", e);
-            return;
-        }
-
-        if (!(parsedPacket.getPayload() instanceof UdpPacket)) {
-            Log.i(TAG, "handleDnsRequest: Discarding unknown packet type " + parsedPacket.getPayload());
             return;
         }
 
@@ -320,14 +326,15 @@ class AdVpnThread implements Runnable {
         Message dnsMsg;
         try {
             dnsMsg = new Message(dnsRawData);
+            if (dnsMsg.getQuestion() == null) {
+                Log.i(TAG, "handleDnsRequest: Discarding DNS packet with no query " + dnsMsg);
+                return;
+            }
         } catch (IOException e) {
             Log.i(TAG, "handleDnsRequest: Discarding non-DNS or invalid packet", e);
             return;
         }
-        if (dnsMsg.getQuestion() == null) {
-            Log.i(TAG, "handleDnsRequest: Discarding DNS packet with no query " + dnsMsg);
-            return;
-        }
+
         String dnsQueryName = dnsMsg.getQuestion().getName().toString(true);
 
         if (!blockedHosts.contains(dnsQueryName.toLowerCase(Locale.ENGLISH))) {
@@ -359,13 +366,6 @@ class AdVpnThread implements Runnable {
             dnsMsg.getHeader().setRcode(Rcode.NXDOMAIN);
             handleDnsResponse(parsedPacket, dnsMsg.toWire());
         }
-    }
-
-    private void handleRawDnsResponse(IpV4Packet parsedPacket, DatagramSocket dnsSocket) throws IOException {
-        byte[] datagramData = new byte[1024];
-        DatagramPacket replyPacket = new DatagramPacket(datagramData, datagramData.length);
-        dnsSocket.receive(replyPacket);
-        handleDnsResponse(parsedPacket, datagramData);
     }
 
     private void handleDnsResponse(IpV4Packet parsedPacket, byte[] response) {

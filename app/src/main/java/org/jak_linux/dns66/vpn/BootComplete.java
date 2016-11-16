@@ -16,8 +16,6 @@ import android.content.Intent;
 import android.net.VpnService;
 import android.util.Log;
 
-import org.jak_linux.dns66.Configuration;
-import org.jak_linux.dns66.FileHelper;
 import org.jak_linux.dns66.MainActivity;
 
 public class BootComplete extends BroadcastReceiver {

@@ -7,6 +7,8 @@
  */
 package org.jak_linux.dns66;
 
+import org.jak_linux.dns66.vpn.Configuration;
+
 /**
  * A callback for returns from the {@link ItemActivity}.
  * The method {@link #onItemChanged(Configuration.Item)} will be called with a new item as

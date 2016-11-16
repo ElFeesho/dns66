@@ -1,4 +1,4 @@
-package org.jak_linux.dns66;
+package org.jak_linux.dns66.vpn;
 
 import android.content.Context;
 import android.system.ErrnoException;
@@ -9,6 +9,8 @@ import android.util.JsonReader;
 import android.util.JsonWriter;
 import android.util.Log;
 import android.widget.Toast;
+
+import org.jak_linux.vpn.lib.R;
 
 import java.io.Closeable;
 import java.io.File;
